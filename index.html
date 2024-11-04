@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Otimização de Corte de Chapa</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
+        .input-container, .output-container, .pecas-container { margin: 20px; }
+        canvas { border: 1px solid #333; margin-top: 10px; max-width: 90vw; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>Otimização de Corte de Chapa</h1>
+    
+    <div class="input-container">
+        <h2>Configuração do Estoque</h2>
+        <label>Comprimento da Chapa (mm):</label>
+        <input type="number" id="larguraChapa" required>
+        <label>Altura da Chapa (mm):</label>
+        <input type="number" id="alturaChapa" required>
+        <label>Espessura da Linha de Corte (mm):</label>
+        <input type="number" id="espessuraLinha" value="1" required>
+        <button onclick="ajustarCanvas()">Ajustar Tamanho da Chapa</button>
+        <button onclick="adicionarLinha()">Adicionar Peça</button>
+        <button onclick="gerarLayouts()">Organizar Corte</button>
+        <button onclick="limpar()">Limpar Tudo</button>
+        <button onclick="gerarPDF()">Imprimir em PDF</button>
+    </div>
+    
+    <div class="pecas-container">
+        <h3>Peças a serem cortadas:</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>Largura (mm)</th>
+                    <th>Altura (mm)</th>
+                    <th>Quantidade</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody id="listaPecas"></tbody>
+        </table>
+    </div>
+    
+    <div id="output" class="output-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- Bibliotecas para gerar PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/0.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.3.2/jspdf.min.js"></script>
+
+    <script>
+        const pecas = [];
+        let pecaCounter = 1;
+
+        function ajustarCanvas() {
+            const larguraChapa = parseInt(document.getElementById("larguraChapa").value);
+            const alturaChapa = parseInt(document.getElementById("alturaChapa").value);
+
+            if (isNaN(larguraChapa) || isNaN(alturaChapa)) {
+                alert("Insira as dimensões válidas da chapa.");
+                return;
+            }
+
+            const canvas = document.getElementById("canvas");
+            const proporcao = Math.min(window.innerWidth * 0.9 / larguraChapa, window.innerHeight * 0.6 / alturaChapa);
+            canvas.width = larguraChapa * proporcao;
+            canvas.height = alturaChapa * proporcao;
+            canvas.dataset.escala = proporcao; // Armazenar a escala no dataset do canvas
+        }
+
+        function adicionarLinha() {
+            const lista = document.getElementById("listaPecas");
+            const linha = document.createElement("tr");
+
+            linha.innerHTML = `
+                <td><input type="text" placeholder="Nome" class="nomePeca" required></td>
+                <td><input type="number" placeholder="Largura" class="larguraPeca" required></td>
+                <td><input type="number" placeholder="Altura" class="alturaPeca" required></td>
+                <td><input type="number" placeholder="Quantidade" class="quantidadePeca" value="1" required></td>
+                <td><button onclick="removerLinha(this)">Remover</button></td>
+            `;
+            lista.appendChild(linha);
+            pecaCounter++;
+        }
+
+        function removerLinha(button) {
+            const row = button.parentNode.parentNode;
+            row.remove();
+        }
+
+        function gerarCorAleatoria() {
+            const r = Math.floor(Math.random() * 256);
+            const g = Math.floor(Math.random() * 256);
+            const b = Math.floor(Math.random() * 256);
+            return `rgba(${r}, ${g}, ${b}, 0.3)`;
+        }
+
+        function calcularCorte(layout) {
+            const larguraChapa = parseInt(document.getElementById("larguraChapa").value);
+            const alturaChapa = parseInt(document.getElementById("alturaChapa").value);
+            const espessuraLinha = parseFloat(document.getElementById("espessuraLinha").value);
+            let canvas = document.getElementById("canvas");
+            let ctx = canvas.getContext("2d");
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpar o canvas
+            const escala = canvas.dataset.escala ? parseFloat(canvas.dataset.escala) : 1;
+            const espessuraEscalada = espessuraLinha * escala;
+            const cores = {};
+
+            layout.forEach((peca, index) => {
+                const key = `${peca.largura}x${peca.altura}`;
+                if (!cores[key]) {
+                    cores[key] = gerarCorAleatoria();
+                }
+
+                const larguraEscalada = (peca.largura - espessuraLinha) * escala;
+                const alturaEscalada = (peca.altura - espessuraLinha) * escala;
+
+                ctx.fillStyle = cores[key];
+                ctx.fillRect(peca.x * escala, peca.y * escala, larguraEscalada, alturaEscalada);
+                ctx.strokeStyle = "#333";
+                ctx.lineWidth = espessuraEscalada;
+                ctx.strokeRect(peca.x * escala, peca.y * escala, larguraEscalada, alturaEscalada);
+
+                // Exibir nome no centro da peça
+                ctx.font = "12px Arial";
+                ctx.fillStyle = "#000";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(peca.nome, peca.x * escala + larguraEscalada / 2, peca.y * escala + alturaEscalada / 2);
+
+                // Exibir largura na linha superior interna
+                ctx.textBaseline = "top";
+                ctx.fillText(`${peca.largura} mm`, peca.x * escala + larguraEscalada / 2, peca.y * escala + 2);
+
+                // Exibir altura na linha lateral esquerda interna
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+                ctx.fillText(`${peca.altura} mm`, peca.x * escala + 2, peca.y * escala + alturaEscalada / 2);
+            });
+        }
+
+        function gerarLayouts() {
+            const larguraChapa = parseInt(document.getElementById("larguraChapa").value);
+            const alturaChapa = parseInt(document.getElementById("alturaChapa").value);
+            const espessuraLinha = parseFloat(document.getElementById("espessuraLinha").value);
+
+            pecas.length = 0; // Limpar lista de peças
+            document.querySelectorAll("#listaPecas tr").forEach(row => {
+                const nome = row.querySelector(".nomePeca").value || `Peça ${pecaCounter}`;
+                const largura = parseInt(row.querySelector(".larguraPeca").value);
+                const altura = parseInt(row.querySelector(".alturaPeca").value);
+                const quantidade = parseInt(row.querySelector(".quantidadePeca").value);
+
+                if (!isNaN(largura) && !isNaN(altura) && quantidade > 0) {
+                    for (let i = 0; i < quantidade; i++) {
+                        pecas.push({ nome, largura, altura });
+                    }
+                }
+            });
+
+            // Gerar diferentes layouts para tentar otimizar
+            const layouts = [];
+            pecas.sort((a, b) => b.largura * b.altura - a.largura * a.altura); // Ordenar por área para melhorar o preenchimento
+
+            // Layout Horizontal
+            let layoutHorizontal = [];
+            let x = 0, y = 0, linhaAltura = 0;
+            pecas.forEach(peca => {
+                if (x + peca.largura + espessuraLinha > larguraChapa) {
+                    x = 0;
+                    y += linhaAltura + espessuraLinha;
+                    linhaAltura = 0;
+                }
+                layoutHorizontal.push({ ...peca, x, y });
+                x += peca.largura + espessuraLinha;
+                if (peca.altura > linhaAltura) linhaAltura = peca.altura;
+            });
+            layouts.push(layoutHorizontal);
+
+            // Layout Vertical
+            let layoutVertical = [];
+            x = 0; y = 0; let colunaLargura = 0;
+            pecas.forEach(peca => {
+                if (y + peca.altura + espessuraLinha > alturaChapa) {
+                    y = 0;
+                    x += colunaLargura + espessuraLinha;
+                    colunaLargura = 0;
+                }
+                layoutVertical.push({ ...peca, x, y });
+                y += peca.altura + espessuraLinha;
+                if (peca.largura > colunaLargura) colunaLargura = peca.largura;
+            });
+            layouts.push(layoutVertical);
+
+            // Avaliar e escolher o melhor layout (com menor altura ou largura usada)
+            const melhorLayout = layouts.reduce((melhor, atual) => {
+                const alturaUsada = Math.max(...atual.map(p => p.y + p.altura));
+                const larguraUsada = Math.max(...atual.map(p => p.x + p.largura));
+                const espacoUsado = alturaUsada * larguraUsada;
+                return espacoUsado < melhor.espacoUsado ? { layout: atual, espacoUsado } : melhor;
+            }, { layout: null, espacoUsado: Infinity });
+
+            // Calcular corte com o melhor layout
+            calcularCorte(melhorLayout.layout);
+        }
+
+        function limpar() {
+            pecas.length = 0;
+            document.getElementById("listaPecas").innerHTML = "";
+            document.getElementById("larguraChapa").value = "";
+            document.getElementById("alturaChapa").value = "";
+            document.getElementById("espessuraLinha").value = 1;
+            const canvas = document.getElementById("canvas");
+            const ctx = canvas.getContext("2d");
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.width = 500; // Reset para o tamanho padrão
+            canvas.height = 500;
+            pecaCounter = 1;
+        }
+
+        function gerarPDF() {
+            html2canvas(document.getElementById("canvas")).then(canvas => {
+                const imgData = canvas.toDataURL("image/png");
+                const pdf = new jsPDF("landscape");
+                pdf.addImage(imgData, "PNG", 10, 10, 280, 190); // Ajusta a imagem no PDF
+                pdf.save("layout_corte.pdf");
+            });
+        }
+    </script>
+</body>
+</html>
